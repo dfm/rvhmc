@@ -2,27 +2,23 @@
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
-#include <cmath>
 #include <limits>
+
+#include "kepler.h"
 
 using namespace tensorflow;
 
-template <typename T>
-inline T kepler (const T& M, const T& e, int maxiter, float tol) {
-  T E0 = M, E = M;
-  if (std::abs(e) < tol) return E;
-  for (int i = 0; i < maxiter; ++i) {
-    T g = E0 - e * sin(E0) - M, gp = 1.0 - e * cos(E0);
-    E = E0 - g / gp;
-    if (std::abs((E - E0) / E) <= T(tol)) {
-      return E;
-    }
-    E0 = E;
-  }
+using CPUDevice = Eigen::ThreadPoolDevice;
+using GPUDevice = Eigen::GpuDevice;
 
-  // If we get here, we didn't converge, but return the best estimate.
-  return E;
-}
+template <typename T>
+struct KeplerFunctor<CPUDevice, T> {
+  void operator()(const CPUDevice& d, int maxiter, float tol, int size, const T* M, const T* e, T* E) {
+    for (int i = 0; i < size; ++i) {
+      E[i] = kepler<T>(M[i], e[i], maxiter, tol);
+    }
+  }
+};
 
 REGISTER_OP("Kepler")
   .Attr("T: {float, double}")
@@ -38,7 +34,7 @@ REGISTER_OP("Kepler")
     return Status::OK();
   });
 
-template <typename T>
+template <typename Device, typename T>
 class KeplerOp : public OpKernel {
  public:
   explicit KeplerOp(OpKernelConstruction* context) : OpKernel(context) {
@@ -71,9 +67,11 @@ class KeplerOp : public OpKernel {
     const auto e = e_tensor.template flat<T>();
     auto E = E_tensor->template flat<T>();
 
-    for (int64 n = 0; n < N; ++n) {
-      E(n) = kepler<T>(M(n), e(n), maxiter_, tol_);
-    }
+    OP_REQUIRES(context, N <= tensorflow::kint32max,
+                errors::InvalidArgument("Too many elements in tensor"));
+
+    KeplerFunctor<Device, T>()(context->eigen_device<Device>(),
+        maxiter_, tol_, static_cast<int>(N), M.data(), e.data(), E.data());
   }
 
  private:
@@ -81,13 +79,28 @@ class KeplerOp : public OpKernel {
   float tol_;
 };
 
-
-#define REGISTER_KERNEL(type)                                              \
+#define REGISTER_CPU(type)                                                 \
   REGISTER_KERNEL_BUILDER(                                                 \
       Name("Kepler").Device(DEVICE_CPU).TypeConstraint<type>("T"),         \
-      KeplerOp<type>)
+      KeplerOp<CPUDevice, type>)
 
-REGISTER_KERNEL(float);
-REGISTER_KERNEL(double);
+REGISTER_CPU(float);
+REGISTER_CPU(double);
 
-#undef REGISTER_KERNEL
+#undef REGISTER_CPU
+
+#ifdef GOOGLE_CUDA
+
+#define REGISTER_GPU(type)                                                 \
+  REGISTER_KERNEL_BUILDER(                                                 \
+      Name("Kepler").Device(DEVICE_GPU).TypeConstraint<type>("T"),         \
+      KeplerOp<GPUDevice, type>)
+
+//extern KeplerFunctor<GPUDevice, float>;
+REGISTER_GPU(float);
+REGISTER_GPU(double);
+
+#undef REGISTER_GPU
+
+#endif
+
