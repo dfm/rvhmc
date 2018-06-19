@@ -36,13 +36,19 @@ compile_flags = tf.sysconfig.get_compile_flags()
 link_flags = tf.sysconfig.get_link_flags()
 
 sources = [os.path.join("rvhmc", "kepler", "kepler.cc")]
+include_dirs = [".", "rvhmc", os.path.join("rvhmc", "kepler")]
 
 # Check for flag and nvcc
 if "--with-cuda" in sys.argv:
     index = sys.argv.index("--with-cuda")
+    base_dir = sys.argv.pop(index+1)
     sys.argv.pop(index)
     compile_flags += ["-DGOOGLE_CUDA=1"]
     sources += [os.path.join("rvhmc", "kepler", "kepler.cc.cu")]
+    include_dirs += [os.path.join(base_dir, "include")]
+    link_flags += ["-L" + os.path.join(base_dir, "lib64")]
+
+
 gcc_flags = compile_flags + ["-std=c++11", "-O2", "-march=native", "-fPIC"]
 nvcc_flags = compile_flags + ["-std=c++11", "-shared", "-Xcompiler", "-fPIC",
                               "-x", "cu",
@@ -55,7 +61,7 @@ extensions = [
         "rvhmc.kepler_op",
         sources=sources,
         language="c++",
-        include_dirs=[os.path.join("rvhmc", "kepler")],
+        include_dirs=include_dirs,
         extra_compile_args=dict(
             nvcc=nvcc_flags,
             gcc=gcc_flags,

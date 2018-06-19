@@ -1,7 +1,7 @@
 #ifdef GOOGLE_CUDA
 #define EIGEN_USE_GPU
 #include "tensorflow/core/util/cuda_kernel_helper.h"
-#include "kepler_op.h"
+#include "kepler.h"
 
 using namespace tensorflow;
 
@@ -15,17 +15,17 @@ __global__ void KeplerCudaKernel(const int maxiter, const float tol, const int s
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     e_ = ldg(e + i);
     M_ = ldg(M + i);
-    if (fabsf(e_) < tol) {
+    if (fabs(e_) < tol) {
       E[i] = M_;
     } else {
       E0 = M_;
       E_ = E0;
       for (n = 0; n < maxiter; ++n) {
-        sincosf(E0, &s, &c);
+        sincos(E0, &s, &c);
         g = E0 - e_ * s - M_;
         gp = 1.0 - e_ * c;
         E_ = E0 - g / gp;
-        if (fabsf((E_ - E0) / E_) <= tol) {
+        if (fabs((E_ - E0) / E_) <= tol) {
           E[i] = E_;
           n = maxiter;
         }

@@ -3,3 +3,4 @@ __pycache__
 *.so
 .DS_Store
 *.egg-info
+rvhmc/cuda
