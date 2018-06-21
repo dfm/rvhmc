@@ -17,7 +17,8 @@ np.random.seed(1234)
 
 N_pl = 2
 
-T = tf.float64
+T = tf.float32
+print(T)
 
 # Data
 t = np.sort(np.random.uniform(0, 365.0, 150))

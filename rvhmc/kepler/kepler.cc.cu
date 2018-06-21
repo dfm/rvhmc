@@ -39,14 +39,9 @@ __global__ void KeplerCudaKernel(const int maxiter, const float tol, const int s
 template <typename T>
 void KeplerFunctor<GPUDevice, T>::operator()(
     const GPUDevice& d, int maxiter, float tol, int size, const T* M, const T* e, T* E) {
-  // Launch the cuda kernel.
-  //
-  // See core/util/cuda_kernel_helper.h for example of computing
-  // block count and thread_per_block count.
-  int block_count = 1024;
-  int thread_per_block = 20;
+  CudaLaunchConfig config = GetCudaLaunchConfig(size, d);
   KeplerCudaKernel<T>
-      <<<block_count, thread_per_block, 0, d.stream()>>>(maxiter, tol, size, M, e, E);
+      <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(maxiter, tol, size, M, e, E);
 }
 
 // Explicitly instantiate functors for the types of OpKernels registered.
