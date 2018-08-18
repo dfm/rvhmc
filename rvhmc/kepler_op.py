@@ -26,8 +26,8 @@ class KeplerOp(gof.Op):
 
         return gof.Apply(self, [mean_anom, eccen], [output_var])
 
-    # def c_code_cache_version(self):
-    #     return (0, 0, 0)
+    def c_code_cache_version(self):
+        return (0, 0, 1)
 
     def grad(self, inputs, gradients):
         M, e = inputs
