@@ -17,8 +17,14 @@ from .utils import join_names
 from .kepler_op import KeplerOp
 
 
-class UnitVector(tr.Transform):
-    name = "unit_vector"
+class UnitVectorTransform(tr.Transform):
+    """A unit vector transformation for PyMC3
+
+    The variable is normalized so that the sum of squares over the last axis
+    is unity.
+
+    """
+    name = "unitvector"
 
     def backward(self, y):
         norm = tt.sqrt(tt.sum(tt.square(y), axis=-1, keepdims=True))
@@ -34,19 +40,20 @@ class UnitVector(tr.Transform):
         return -0.5*tt.sum(tt.square(y), axis=-1)
 
 
-unit_vector = UnitVector()
+unit_vector_transform = UnitVectorTransform()
 
 
-# def unit_vector(name, shape=None, testval=None):
-#     vec = pm.Normal(name + "_latent__", shape=shape, testval=testval)
-#     norm = tt.sqrt(tt.sum(tt.square(vec), axis=-1, keepdims=True))
-#     return vec/norm
+class UnitVector(pm.Flat):
+
+    def __init__(self, *args, **kwargs):
+        kwargs["transform"] = unit_vector_transform
+        super(UnitVector, self).__init__(*args, **kwargs)
 
 
 class RVModel(object):
 
-    def __init__(self, datasets, planets,
-                 tol=1e-8, maxiter=2000):
+    def __init__(self, name, datasets, planets, tol=1e-8, maxiter=2000):
+        self.name = name
 
         if isinstance(datasets, collections.Iterable):
             self.datasets = datasets
@@ -75,36 +82,35 @@ class RVModel(object):
         eccen_anom = self.kepler(mean_anom, eccen_arg)
         f = 2*tt.arctan2(tt.sqrt(1+e)*tt.tan(0.5*eccen_anom),
                          tt.sqrt(1-e)+tt.zeros_like(eccen_anom))
-        return pm.Deterministic(join_names(name, "rvmodels"),
+        return pm.Deterministic(join_names(self.name, name, "rvmodels"),
                                 K * (cosw*(tt.cos(f)+e) - sinw*tt.sin(f)))
 
     def observe(self, name=None):
         for data in self.datasets:
             model = pm.Deterministic(
-                join_names(data.name, name, "model"),
-                tt.sum(self.get_rvmodels(data.t, join_names(data.name, name)),
+                join_names(self.name, data.name, name, "model"),
+                tt.sum(self.get_rvmodels(
+                    data.t, join_names(data.name, name)),
                        axis=1))
             data.observe(model, name)
 
 
 class RVPlanet(object):
 
-    def __init__(self,
-                 name,
-                 logP,
-                 logK,
-                 phivec=None,
-                 eccen=None,
-                 omegavec=None,
-                 logP_range=None,
-                 logK_range=None):
+    def __init__(self, name, logP, logK, phivec=None, eccen=None,
+                 omegavec=None):
 
         self.name = name
 
         self.logP = logP
         self.logK = logK
 
-        self._angle("omega", phivec)
+        if phivec is None:
+            phivec = UnitVector(join_names(self.name, "phivec"), shape=2,
+                                testval=np.array([1.0, 0.0]))
+        self.phivec = phivec
+        self.phi = pm.Deterministic(join_names(self.name, "phi"),
+                                    tt.arctan2(phivec[1], phivec[0]))
 
         self.vars = [self.logP, self.logK, self.phivec]
 
@@ -119,32 +125,15 @@ class RVPlanet(object):
             self.eccen = eccen
 
             if omegavec is None:
-                omegavec = self.get_omegavec(np.array([1.0, 0.0]))
+                omegavec = UnitVector(join_names(self.name, "omegavec"),
+                                      shape=2,
+                                      testval=np.array([1.0, 0.0]))
             self.omegavec = omegavec
-            self.omega = pm.Deterministic(
-                join_names(self.name, "omega"),
-                tt.arctan2(self.omegavec[1], self.omegavec[0]))
+            self.omega = pm.Deterministic(join_names(self.name, "omega"),
+                                          tt.arctan2(omegavec[1], omegavec[0]))
 
             self.vars += [self.eccen, self.omegavec]
 
         self.n = 2*np.pi*tt.exp(-self.logP)
         self.t0 = pm.Deterministic(join_names(self.name, "t0"),
                                    var=(self.phi + self.omega) / self.n)
-
-    def _angle(self, name, testval=np.array([1.0, 0.0])):
-        vec = pm.Flat(join_names(self.name, name + "vec"), shape=2,
-                      transform=unit_vector, testval=testval)
-        setattr(self, name + "vec", vec)
-        setattr(self, name, pm.Deterministic(
-            join_names(self.name, name), tt.arctan2(vec[1], vec[0])))
-
-    def get_phivec(self, testval=None):
-        return pm.Flat(join_names(self.name, "phivec"), shape=2,
-                       transform=unit_vector, testval=testval)
-
-    def get_omegavec(self, testval=None):
-        return pm.Flat(join_names(self.name, "omegavec"), shape=2,
-                       transform=unit_vector, testval=testval)
-
-    def get_eccen(self, testval=None):
-        return pm.Uniform(join_names(self.name, "eccen"), lower=0.0, upper=1.0)
