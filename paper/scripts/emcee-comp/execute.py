@@ -7,9 +7,12 @@ import os
 import sys
 import subprocess as sp
 
+os.environ["OMP_NUM_THREADS"] = "1"
+
 cpus = os.cpu_count()
 if cpus is None:
     cpus = 1
+print(cpus)
 
 if len(sys.argv) > 1:
     n_planets = int(sys.argv[1])
