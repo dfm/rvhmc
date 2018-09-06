@@ -3,7 +3,7 @@
 
 from __future__ import division, print_function
 
-__all__ = ["lomb_scargle_estimator"]
+__all__ = ["lomb_scargle_estimator", "find_peaks"]
 
 import numpy as np
 from astropy.stats import LombScargle
@@ -70,3 +70,38 @@ def lomb_scargle_estimator(x, y, yerr=None,
         periodogram=(freq, power_est),
         peaks=peaks,
     )
+
+
+def find_peaks(n_peaks, x, y, yerr=None, **kwargs):
+    y0 = np.copy(y)
+
+    kwargs["max_peaks"] = 1
+    kwargs["samples_per_peak"] = kwargs.get("samples_per_peak", 20)
+
+    peaks = []
+    for i in range(n_peaks):
+        # Find a peak using Lomb-Scargle
+        m = lomb_scargle_estimator(x, y0, yerr=yerr, **kwargs)
+        if not len(m):
+            print("Only found {0} / {1} peaks".format(i, n_peaks))
+            break
+        peak = dict(m["peaks"][0])
+
+        # Fit for the model associated with this peak
+        A = np.vstack([
+            np.sin(2*np.pi*x/peak["period"]),
+            np.cos(2*np.pi*x/peak["period"]),
+            np.ones_like(x),
+        ]).T
+        w = np.linalg.solve(np.dot(A.T, A), np.dot(A.T, y0))
+
+        # Compute the amplitude and phase
+        peak["amp"] = np.sqrt(np.sum(w[:-1]**2))
+        peak["phase"] = np.arctan2(w[0], w[1])
+
+        # Subtract the best fit model
+        y0 -= np.dot(A, w)
+
+        peaks.append(peak)
+
+    return sorted(peaks, key=lambda v: v["amp"])

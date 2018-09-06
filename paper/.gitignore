@@ -1,1 +1,15 @@
+*.aux
+*.log
+*.out
 rvhmc.pdf
+*.bbl
+*.blg
+msNotes.bib
+vc.tex
+*.ent
+papers
+*.png
+references
+images
+fore*
+!*.ipynb

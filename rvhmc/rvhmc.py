@@ -2,138 +2,98 @@
 
 from __future__ import division, print_function
 
-__all__ = ["RVModel", "RVPlanet"]
+__all__ = ["setup_default_model"]
 
+import string
 import collections
 
 import numpy as np
 
 import pymc3 as pm
-import pymc3.distributions.transforms as tr
+from pymc3.model import modelcontext
 
 import theano.tensor as tt
 
-from .utils import join_names
-from .kepler_op import KeplerOp
+from .rvmodel import RVModel
+from .rvplanet import RVPlanet
+
+from .estimator import find_peaks
 
 
-class UnitVectorTransform(tr.Transform):
-    """A unit vector transformation for PyMC3
+def setup_default_model(n_planets, datasets,
+                        min_period=None, max_period=None,
+                        min_amp=None, max_amp=None,
+                        circular=True,
+                        trend_order=0,
+                        model=None):
+    model = modelcontext(model)
 
-    The variable is normalized so that the sum of squares over the last axis
-    is unity.
+    if isinstance(datasets, collections.Iterable):
+        datasets = datasets
+    else:
+        datasets = [datasets]
 
-    """
-    name = "unitvector"
+    x, y, yerr = [], [], []
+    for data in datasets:
+        x.append(data.t)
+        y.append(data.rv)
+        if data.rverr is not None:
+            yerr.append(data.rverr)
+    x = np.concatenate(x)
+    y = np.concatenate(y)
+    if len(yerr):
+        yerr = np.concatenate(yerr)
+        if len(yerr) != len(x):
+            yerr = None
+    else:
+        yerr = None
 
-    def backward(self, y):
-        norm = tt.sqrt(tt.sum(tt.square(y), axis=-1, keepdims=True))
-        return y / norm
+    if min_period is None:
+        min_period = np.mean(np.diff(np.sort(x)))
+    if max_period is None:
+        max_period = 0.5*(x.max() - x.min())
 
-    def forward(self, x):
-        return tt.as_tensor_variable(x)
-
-    def forward_val(self, x, point=None):
-        return np.copy(x)
-
-    def jacobian_det(self, y):
-        return -0.5*tt.sum(tt.square(y), axis=-1)
-
-
-unit_vector_transform = UnitVectorTransform()
-
-
-class UnitVector(pm.Flat):
-
-    def __init__(self, *args, **kwargs):
-        kwargs["transform"] = unit_vector_transform
-        super(UnitVector, self).__init__(*args, **kwargs)
-
-
-class RVModel(object):
-
-    def __init__(self, name, datasets, planets, tol=1e-8, maxiter=2000):
-        self.name = name
-
-        if isinstance(datasets, collections.Iterable):
-            self.datasets = datasets
+    if min_amp is None:
+        if yerr is None:
+            min_amp = 0.001 * np.std(y)
         else:
-            self.datasets = [datasets]
+            min_amp = 0.01 * np.min(yerr)
+    if max_amp is None:
+        max_amp = 1.5 * (y.max() - y.min())
 
-        if isinstance(planets, collections.Iterable):
-            self.planets = planets
-        else:
-            self.planets = [planets]
+    peaks = find_peaks(n_planets, x, y, yerr,
+                       min_period=min_period, max_period=max_period)
 
-        self.kepler = KeplerOp(tol=tol, maxiter=maxiter)
+    with model:
+        planets = []
+        for peak, name in zip(peaks, string.ascii_lowercase[1:]):
+            logP = pm.Uniform(name + ":logP",
+                              lower=np.log(min_period),
+                              upper=np.log(max_period),
+                              testval=np.log(peak["period"]))
+            logK = pm.Uniform(name + ":logK",
+                              lower=np.log(min_amp),
+                              upper=np.log(max_amp),
+                              testval=np.log(np.clip(peak["amp"],
+                                                     min_amp+1e-2,
+                                                     max_amp-1e-2)))
 
-        self.observe()
+            eccen = None
+            if not circular:
+                eccen = pm.Beta(name + ":eccen",
+                                alpha=0.867,
+                                beta=3.03,
+                                testval=0.001)
 
-    def get_rvmodels(self, t, name=None):
-        K = tt.exp(tt.stack([p.logK for p in self.planets]))
-        n = tt.stack([p.n for p in self.planets])
-        t0 = tt.stack([p.t0 for p in self.planets])
-        e = tt.stack([p.eccen for p in self.planets])
-        cosw = tt.stack([p.omegavec[0] for p in self.planets])
-        sinw = tt.stack([p.omegavec[1] for p in self.planets])
+            planets.append(
+                RVPlanet(name, logP, logK, phi=peak["phase"], eccen=eccen))
 
-        mean_anom = n * (t[:, None] - t0)
-        eccen_arg = e + tt.zeros_like(mean_anom)
-        eccen_anom = self.kepler(mean_anom, eccen_arg)
-        f = 2*tt.arctan2(tt.sqrt(1+e)*tt.tan(0.5*eccen_anom),
-                         tt.sqrt(1-e)+tt.zeros_like(eccen_anom))
-        return pm.Deterministic(join_names(self.name, name, "rvmodels"),
-                                K * (cosw*(tt.cos(f)+e) - sinw*tt.sin(f)))
+            if len(planets) > 1:
+                pm.Potential("order:{0}".format(name),
+                             tt.switch((planets[-2].logK < planets[-1].logK),
+                                       0.0, -np.inf))
 
-    def observe(self, name=None):
-        for data in self.datasets:
-            model = pm.Deterministic(
-                join_names(self.name, data.name, name, "model"),
-                tt.sum(self.get_rvmodels(
-                    data.t, join_names(data.name, name)),
-                       axis=1))
-            data.observe(model, name)
+        rvmodel = RVModel("rv", datasets, planets)
+        pm.Deterministic("logp", model.logpt)
 
-
-class RVPlanet(object):
-
-    def __init__(self, name, logP, logK, phivec=None, eccen=None,
-                 omegavec=None):
-
-        self.name = name
-
-        self.logP = logP
-        self.logK = logK
-
-        if phivec is None:
-            phivec = UnitVector(join_names(self.name, "phivec"), shape=2,
-                                testval=np.array([1.0, 0.0]))
-        self.phivec = phivec
-        self.phi = pm.Deterministic(join_names(self.name, "phi"),
-                                    tt.arctan2(phivec[1], phivec[0]))
-
-        self.vars = [self.logP, self.logK, self.phivec]
-
-        if eccen is None:
-            self.circular = True
-            self.eccen = 0.0
-            self.omegavec = np.array([1.0, 0.0])
-            self.omega = 0.0
-        else:
-            self.circular = False
-
-            self.eccen = eccen
-
-            if omegavec is None:
-                omegavec = UnitVector(join_names(self.name, "omegavec"),
-                                      shape=2,
-                                      testval=np.array([1.0, 0.0]))
-            self.omegavec = omegavec
-            self.omega = pm.Deterministic(join_names(self.name, "omega"),
-                                          tt.arctan2(omegavec[1], omegavec[0]))
-
-            self.vars += [self.eccen, self.omegavec]
-
-        self.n = 2*np.pi*tt.exp(-self.logP)
-        self.t0 = pm.Deterministic(join_names(self.name, "t0"),
-                                   var=(self.phi + self.omega) / self.n)
+        return rvmodel

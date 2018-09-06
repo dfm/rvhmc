@@ -76,12 +76,14 @@
 \begin{document}\raggedbottom\sloppy\sloppypar\frenchspacing
 
 \title{%
+Robust characterization and detection of multi-planet radial velocity
+exoplanet systems
 Characterization of radial velocity exoplanets in multi-planet systems using
 gradient-based inference
 }
 
 \author[0000-0002-9328-5652]{Daniel Foreman-Mackey}
-\affil{Flatiron Institute, New York, NY}
+\affil{Center for Computational Astrophysics, Flatiron Institute, New York, NY}
 
 \author{others}
 
@@ -96,6 +98,54 @@ High-dimensional MCMC is Hard.
 methods: data analysis ---
 methods: statistical
 }
+
+\section{Introduction}
+
+Many new high-precision spectrographs are coming online (list some examples)
+with the explicit goal of detecting and characterizing exoplanet systems.
+In many of these cases, these exoplanets will live in multi-planet systems
+with more than one detectable Keplerian signal in the radial velocity time
+series.
+It is standard practice to characterize these signals in a Bayesian framework
+(e.g.~radvel) where inferences are made about the properties of the system
+using a probabilistic model and Markov chain Monte Carlo (MCMC).
+Since MCMC is an iterative method, it must be run until convergence to obtain
+robust results.
+The number of computations required to reach convergence for multi-planet
+systems using standard methods (e.g.~emcee) is prohibitively large since the
+computational cost per independent sample scales as a high power of the number
+of dimensions.
+
+Instead, if we can compute the gradient of the log probability function with
+respect to the parameters of the model, we can use gradient-based methods in
+the Hamiltonian Monte Carlo (HMC) class of algorithms.
+These methods generally scale better to large numbers of parameters---and we
+will demonstrate that the same is true for radial velocity exoplanets.
+
+\section{Keplerian radial velocity exoplanet models \& their gradients}
+
+The main step in this model that is not trivially differentiable in a standard
+automatic differentiation framework is the solver for Kepler's equation.
+We must solve Kepler's equation
+\begin{eqnarray}
+M = E - e\,\sin E
+\end{eqnarray}
+for the eccentric anomaly $E$ given some mean anomaly $M$ and eccentricity
+$e$.
+This can be solved numerically using standard methods (cite), but if we want
+to use gradient-based methods, we must also be able to compute the gradients
+$\dd E / \dd M$ and $\dd E / \dd e$.
+These can be calculated by implicitly differentiating the above equation to
+find
+\begin{eqnarray}
+\dd M &=& (1 - e\,\cos E)\,\dd E - \sin E \, \dd e \\
+\dd E &=& \frac{1}{1 - e\,\cos E}\,\dd M + \frac{\sin E}{1 - e\,\cos E}\,\dd e
+\end{eqnarray}
+giving the required partial derivatives
+\begin{eqnarray}
+\frac{\dd E}{\dd M} &=& \frac{1}{1 - e\,\cos E} \\
+\frac{\dd E}{\dd e} &=& \frac{\sin E}{1 - e\,\cos E} \quad.
+\end{eqnarray}
 
 \section{Outline}
 
