@@ -122,6 +122,35 @@ the Hamiltonian Monte Carlo (HMC) class of algorithms.
 These methods generally scale better to large numbers of parameters---and we
 will demonstrate that the same is true for radial velocity exoplanets.
 
+\section{A probabilistic model of radial velocity exoplanets \& its gradients}
+
+The radial velocity signature of an exoplanet orbiting its host star is seen
+as a periodic trend in the radial velocity of the star's center of mass
+induced by the orbit of the exoplanet.
+Ignoring the mutual interactions between planets in the same system, we can
+model the orbit as Keplerian and the mean model describing the radial velocity
+curve of an $N$-body exoplanet system as a function of the physical parameters
+of the planets is given by CITE EXOPLANETS \citep{Fulton:2018}
+\begin{eqnarray}
+v_r(t) &=& \sum_{n=1}^N K_n\,\left[ \cos(\nu_n(t)+\omega_n)
+    + e_n\,\cos(\omega_n) \right]
+\end{eqnarray}
+where the sum is over the exoplanets $n=1,\ldots,N$, $K_n$ is the radial
+velocity semi-amplitude, $e_n$ is the eccentricity, $\omega_n$ is the argument
+of periastron, and $\nu_n(t)$ is the true orbital anomaly at time $t$ for
+planet $n$.
+The true anomaly is computed from the eccentric anomaly $E_n(t)$,
+\begin{eqnarray}
+\nu_n(t) &=& 2\,\tan^{-1}\left(\sqrt{\frac{1+e_n}{1-e_n}}\,
+    \tan \frac{E}{2}\right)
+\end{eqnarray}
+which is, in turn, computed by numerically solving Kepler's equation for a
+given mean anomaly $M_n(t) = 2\,\pi\,[t-t_{0,n}]/P_n$
+\begin{eqnarray}
+M_n(t) &=& E_n(t) - e \, \sin E_n(t)
+\end{eqnarray}
+where $P_n$ is the orbital period and $t_{0,n}$ is a reference time.
+
 \section{Keplerian radial velocity exoplanet models \& their gradients}
 
 The main step in this model that is not trivially differentiable in a standard
