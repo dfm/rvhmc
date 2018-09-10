@@ -5,6 +5,7 @@ from __future__ import division, print_function
 
 import os
 import sys
+import time
 import subprocess as sp
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -26,8 +27,26 @@ exe = [
 ]
 procs = []
 for version in range(cpus):
-    procs.append(sp.Popen(exe + ["{0}".format(version)],
-                          stdout=sp.PIPE, stderr=sp.PIPE))
+    procs.append(sp.Popen(
+        exe + ["{0}".format(version)],
+        stdout=sp.DEVNULL, stderr=sp.PIPE))
+    print(version, "started")
 
-for proc in procs:
-    results = proc.communicate()
+finished = [False for _ in procs]
+try:
+    while True:
+        for i, proc in enumerate(procs):
+            if finished[i]:
+                continue
+            code = proc.poll()
+            if code is not None:
+                out, err = proc.communicate()
+                print(i, "finished")
+                finished[i] = True
+        if all(finished):
+            break
+        time.sleep(10)
+
+finally:
+    for proc in procs:
+        proc.kill()

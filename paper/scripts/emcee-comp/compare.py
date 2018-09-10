@@ -5,6 +5,22 @@ from __future__ import division, print_function
 
 import os
 import sys
+
+if len(sys.argv) > 1:
+    n_planets = int(sys.argv[1])
+else:
+    n_planets = 1
+dirname = "{0:02d}".format(n_planets)
+if len(sys.argv) > 2:
+    version = int(sys.argv[2])
+    dirname = os.path.join(dirname, "{0:04d}".format(version))
+else:
+    version = 0
+os.makedirs(dirname, exist_ok=True)
+
+os.environ["THEANO_FLAGS"] = \
+    "compiledir=./{0}/cache".format(dirname)
+
 import time
 import string
 
@@ -80,17 +96,6 @@ def build_model(peaks, t, y=None, yerr=None, model=None):
 
 
 # Simulate a random dataset
-if len(sys.argv) > 1:
-    n_planets = int(sys.argv[1])
-else:
-    n_planets = 1
-dirname = "{0:02d}".format(n_planets)
-if len(sys.argv) > 2:
-    version = int(sys.argv[2])
-    dirname = os.path.join(dirname, "{0:04d}".format(version))
-else:
-    version = 0
-os.makedirs(dirname, exist_ok=True)
 
 np.random.seed(42 + version)
 
